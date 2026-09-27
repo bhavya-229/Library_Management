@@ -1,0 +1,18 @@
+# Compiled class files
+build/
+bin/
+*.class
+
+# Distribution and packaging
+dist/
+*.jar
+*.war
+*.ear
+
+# NetBeans IDE private user settings
+nbproject/private/
+*.orig
+
+# OS generated files
+.DS_Store
+Thumbs.db
