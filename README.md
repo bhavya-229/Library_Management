@@ -1,59 +1,50 @@
-# Library Management System (Console Edition)
+# Library Management System
 
-A modular, production-minded **Library Management System** built with **Core Java (JDK 8+)**, **JDBC**, and **MySQL**. 
-
-This project demonstrates strong software engineering fundamentals: **Object-Oriented Design (OOP)**, **Separation of Concerns (Layered N-Tier Architecture)**, **ACID Database Transactions**, **Defensive Validation with Custom Exceptions**, and **Relational Database Normalization (3NF)**.
+A console-based Library Management System developed in **Java** using **JDBC** and **MySQL**. The application provides role-based access for librarians and library members to manage books, patrons, book issue/return operations, loan histories, and library analytics.
 
 ---
 
-## Architecture Overview
+## Features
 
-The system strictly follows the **N-Tier Layered Architecture** (Model-View-Service-DAO), ensuring that business logic, data persistence, and console presentation are decoupled.
+### Librarian (Admin)
+- **Book Management:** Add new titles, view catalog, search by keyword/ID, update book information, and delete books (with active loan checks).
+- **Member Management:** Register new members, search records, update contact details, and delete members.
+- **Issue & Return Operations:** Issue books with a standard 14-day loan period, return books, and automatically calculate overdue fines.
+- **Loan Tracking & Reports:** View all transactions, currently issued books, completed returns, overdue loans, and individual member loan history.
+- **Library Dashboard:** Summary analytics showing total titles, total physical copies, registered patrons, circulation numbers, total fines collected, and category breakdown.
 
-```
-+--------------------------------------------------------------------------+
-|                        PRESENTATION LAYER (UI)                           |
-|  - BookMenu.java, MemberMenu.java, IssueMenu.java, DashboardMenu.java    |
-|  - MemberPortalMenu.java (Role-Based Console Menus)                      |
-+--------------------------------------------------------------------------+
-                                    │
-                                    ▼ (Calls Service API)
-+--------------------------------------------------------------------------+
-|                         BUSINESS SERVICE LAYER                           |
-|  - BookService.java, MemberService.java, IssueService.java               |
-|  - DashboardService.java, AuthService.java                               |
-|  - Enforces domain constraints, fine calculations, and active loan rules |
-+--------------------------------------------------------------------------+
-                                    │
-                                    ▼ (Calls DAO Contracts)
-+--------------------------------------------------------------------------+
-|                       DATA ACCESS LAYER (DAO)                            |
-|  - BookDAO / BookDAOImpl.java, MemberDAO / MemberDAOImpl.java            |
-|  - IssueDAO / IssueDAOImpl.java, DashboardDAO / DashboardDAOImpl.java    |
-|  - Executes parameterized SQL via JDBC PreparedStatements                |
-|  - Manages atomic transactions (commit / rollback)                       |
-+--------------------------------------------------------------------------+
-                                    │
-                                    ▼ (TCP / Sockets via JDBC)
-+--------------------------------------------------------------------------+
-|                         PERSISTENCE / DATABASE                           |
-|  - MySQL Database (`library_db` on Port 3306)                            |
-|  - Tables: `books`, `members`, `issues`, `users`                         |
-+--------------------------------------------------------------------------+
-```
-
-### Why This Layering Matters
-* **Model Layer (`library_management.model`):** Encapsulated POJOs representing database records as Java domain entities.
-* **DAO Layer (`library_management.dao`):** The *only* layer executing SQL queries. Maps `ResultSet` rows to Java models and protects against SQL injection.
-* **Service Layer (`library_management.service`):** Contains business logic (stock validation, loan duration math, overdue fine computation, transaction coordination). UI components never touch DAOs directly.
-* **UI Layer (`library_management.ui`):** Handles console menus, user input parsing, and formatted ASCII reports.
-* **Exception Layer (`library_management.exception`):** Domain-specific exception hierarchy (`BookNotAvailableException`, `ActiveLoanException`, `ResourceNotFoundException`).
+### Member (Patron)
+- **Catalog Browsing:** Browse all books and search by title, author, category, or ISBN.
+- **Personal Dashboard:** View currently borrowed books and due dates.
+- **Borrowing History:** View complete loan history including return dates and fine details.
 
 ---
 
-## Database Design & Relational Schema
+## Architecture & Project Structure
 
-The database (`library_db`) is normalized in Third Normal Form (3NF) to avoid data redundancy and maintain referential integrity.
+The project follows a layered architecture to keep presentation, business rules, and database persistence separate:
+
+```
+Library_Management/
+├── lib/
+│   └── mysql-connector-j-8.0.33.jar   # MySQL JDBC Driver
+├── schema.sql                         # Database setup and seed data
+└── src/
+    └── library_management/
+        ├── model/                     # Domain entities (Book, Member, IssueRecord, User, DashboardStats)
+        ├── dao/                       # Data access interfaces and JDBC implementations
+        ├── service/                   # Business rules, validations, and loan math
+        ├── ui/                        # Console menus and table formatters
+        ├── exception/                 # Custom domain exceptions
+        ├── util/                      # DBConnection factory and safe input helpers
+        └── Library_Management.java    # Application entry point
+```
+
+---
+
+## Database Design
+
+The system runs on a MySQL database (`library_db`) structured into four normalized tables:
 
 ```mermaid
 erDiagram
@@ -100,107 +91,49 @@ erDiagram
     }
 ```
 
-### Relational Constraints
-1. **Primary & Foreign Keys:** `issues.book_id` references `books.book_id`; `issues.member_id` references `members.member_id`.
-2. **Referential Integrity (`ON DELETE RESTRICT`):** Deleting a book or member record is rejected if active loan records reference them.
-3. **Inventory Check Constraints:** `available_quantity` must satisfy `0 <= available_quantity <= total_quantity`.
-4. **Unique Constraints:** `books.isbn`, `members.email`, and `users.username` are strictly unique.
+### Key Database Rules
+- **Referential Integrity:** `issues` references `books` and `members` using `ON DELETE RESTRICT` to ensure records with active or past loan history cannot be inadvertently deleted.
+- **Stock Constraints:** `available_quantity` is validated via check constraint (`0 <= available_quantity <= total_quantity`).
+- **Transactions:** Book issue and return operations use JDBC manual transactions (`setAutoCommit(false)`, `commit()`, and `rollback()`) with row locking (`FOR UPDATE`) to keep inventory and loan records synchronized.
 
 ---
 
-## Features
+## Tech Stack
 
-### 1. Role-Based Access Control (RBAC)
-* **Librarian / Admin Portal:**
-  * Full catalog management (Add, View, Search, Update, Delete books).
-  * Member registration, updates, and loan history inspection.
-  * Issue books (atomically decrements stock and sets 14-day due date).
-  * Return books (atomically increments stock and assesses overdue fines).
-  * Circulation reports (All records, currently issued books, overdue books).
-  * Live Analytics Dashboard with aggregate metrics and genre distribution.
-* **Member Self-Service Portal:**
-  * Browse available catalog and search books.
-  * View personal active loans and due dates.
-  * View complete borrowing history with fine receipts.
-
-### 2. Transaction Management (ACID)
-* **Book Issue Transaction:** Atomically checks row-locked stock (`FOR UPDATE`), inserts the loan into `issues`, and decrements `available_quantity`. Commits only if all succeed; rolls back otherwise.
-* **Book Return Transaction:** Atomically marks `status = 'RETURNED'`, timestamps `return_date`, writes `fine_amount`, and increments `available_quantity`.
-
-### 3. Configurable Fine Engine
-$$\text{Fine} = (\text{Return Date} - \text{Due Date})_{\text{days}} \times \text{Daily Fine Rate}$$
-* Default loan period: 14 days.
-* Default daily fine rate: $5.00/day (configurable in `IssueService.java`).
-
-### 4. Robust Input Validation & Exception Handling
-* Safe console input parsing (`InputUtil.java`) preventing the classic `Scanner` newline bug.
-* Defensive domain exceptions: `ResourceNotFoundException`, `BookNotAvailableException`, `ActiveLoanException`.
+- **Language:** Java (JDK 8+)
+- **Database:** MySQL (XAMPP Port 3306)
+- **Database Connectivity:** JDBC (MySQL Connector/J 8.0.33)
+- **Build / IDE:** NetBeans IDE / Apache Ant
 
 ---
 
-## Technologies Used
-
-* **Language:** Java (JDK 8 / 11 / 17 / 21 compatible)
-* **Database:** MySQL 8.x / MariaDB (XAMPP Port 3306)
-* **Driver:** MySQL Connector/J 8.0.33
-* **Build / IDE:** NetBeans IDE (Ant build system)
-* **Version Control:** Git & GitHub
-
----
-
-## Setup & Running Instructions
+## Getting Started
 
 ### Prerequisites
-* JDK 8 or higher installed and on system `PATH`.
-* XAMPP (or standalone MySQL Server) with Apache and MySQL services running on Port 3306.
-* NetBeans IDE (or any Java IDE).
+1. Java Development Kit (JDK 8 or higher).
+2. MySQL Server (e.g. through XAMPP or standalone MySQL).
 
 ### 1. Database Setup
-1. Start MySQL in XAMPP Control Panel.
-2. Open phpMyAdmin (`http://localhost/phpmyadmin`) or MySQL CLI.
-3. Import or execute the included [`schema.sql`](schema.sql) file:
+1. Start MySQL (default port `3306`).
+2. Run the `schema.sql` script to create `library_db` and insert seed data:
    ```bash
    mysql -u root -p < schema.sql
    ```
-   *(Default credentials in XAMPP: User `root`, password empty).*
+   *(If using XAMPP default settings, user is `root` with no password).*
 
-### 2. Running in NetBeans IDE
-1. Open NetBeans IDE.
-2. Select **File** $\rightarrow$ **Open Project** $\rightarrow$ navigate to `Library_Management`.
-3. Verify `mysql-connector-j-8.0.33.jar` is present under the **Libraries** node (located in `lib/`).
-4. Right-click `Library_Management.java` and select **Run File** (or press `Shift + F6`).
+### 2. Running the Application
+- **In NetBeans:**
+  1. Open the project in NetBeans.
+  2. Ensure `lib/mysql-connector-j-8.0.33.jar` is listed in project libraries.
+  3. Right-click `Library_Management.java` and select **Run File**.
+- **Via Command Line:**
+  ```bash
+  javac -cp "lib/mysql-connector-j-8.0.33.jar" -d build/classes src/library_management/**/*.java src/library_management/*.java
+  java -cp "build/classes;lib/mysql-connector-j-8.0.33.jar" library_management.Library_Management
+  ```
 
-### 3. Default Login Credentials
+### Default Login Accounts
 | Role | Username | Password |
 | :--- | :--- | :--- |
 | **Librarian (Admin)** | `admin` | `admin123` |
 | **Member** | `john_doe` | `member123` |
-
----
-
-## Places to Take Screenshots for GitHub
-
-To make your GitHub repository stand out to technical recruiters, capture and embed screenshots of:
-
-1. **`screenshots/01_login_menu.png`:** The initial login menu showing role routing.
-2. **`screenshots/02_admin_menu.png`:** The Librarian administrative menu options.
-3. **`screenshots/03_book_catalog.png`:** Tabular formatted display of all books with stock counts.
-4. **`screenshots/04_book_issue_receipt.png`:** A successful book issue showing 14-day due date calculation.
-5. **`screenshots/05_book_return_fine.png`:** An overdue return showing overdue days and fine assessment.
-6. **`screenshots/06_analytics_dashboard.png`:** The ASCII Analytics Dashboard with SQL aggregates and category breakdown.
-7. **`screenshots/07_member_portal.png`:** The Member view showing personal active loans.
-
----
-
-## Resume-Ready Project Descriptions
-
-### Option A: Bullet Points for Resume / CV
-* **Library Management System (Core Java, JDBC, MySQL)**
-  * Engineered a console-based Library Management System using **Java 8+**, **JDBC**, and a normalized **MySQL** database following 3-tier **Layered Architecture (Model-Service-DAO-UI)**.
-  * Designed **ACID-compliant JDBC transactions** (`commit()` / `rollback()` with row-level locking via `SELECT ... FOR UPDATE`) to guarantee inventory consistency during concurrent book issues and returns.
-  * Implemented fine calculation engine computing overdue penalties based on `java.time` date arithmetic, alongside role-based access control (RBAC) distinguishing Librarians from Members.
-  * Constructed complex SQL queries including **multi-table INNER JOINs**, conditional aggregation (`COUNT(CASE WHEN ...)`), and genre distribution analysis using `GROUP BY`.
-  * Built a custom domain exception hierarchy (`BookNotAvailableException`, `ActiveLoanException`, `ResourceNotFoundException`) to handle business rule violations cleanly.
-
-### Option B: Short Summary (LinkedIn / Portfolio)
-> *"Developed an enterprise-patterned Library Management System in pure Core Java and JDBC backed by MySQL. Focused on core software design principles without external frameworks: 3NF database schema, atomic transactions, SQL joins and aggregations, custom exception hierarchies, and role-based console portals."*
